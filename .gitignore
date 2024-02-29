@@ -122,3 +122,7 @@ ENV/
 
 # Jetbrains
 .idea/
+
+# akyoz append files
+cookies.txt
+id_list.txt
