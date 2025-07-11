@@ -126,3 +126,4 @@ ENV/
 # akyoz append files
 cookies.txt
 id_list.txt
+.env
