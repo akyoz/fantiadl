@@ -16,6 +16,7 @@ import mimetypes
 import os
 import re
 import sys
+import shutil
 import time
 import traceback
 
@@ -374,33 +375,85 @@ class FantiaDownloader:
             self.output("Filename in exclusion list (skipping): {}\n".format(filename))
             return
 
-        file_size = int(request.headers["Content-Length"])
-        if os.path.isfile(filepath) and os.stat(filepath).st_size == file_size:
+        try:
+            file_size = int(request.headers["Content-Length"])
+        except (KeyError, ValueError):
+            file_size = 0
+
+        if os.path.isfile(filepath) and os.stat(filepath).st_size == file_size and file_size > 0:
             self.output("File found (skipping): {}\n".format(filepath))
             return
 
         self.output("File: {}\n".format(filepath))
-        base_filename, original_extension = os.path.splitext(filepath)
-        incomplete_filename = base_filename + ".incomplete"
+        base_filename, _ = os.path.splitext(filepath)
+        incomplete_filename = base_filename + "._incomplete"
 
         downloaded = 0
+        start_time = time.time()
+
+        # Get terminal width for progress bar padding
+        try:
+            terminal_width = shutil.get_terminal_size().columns
+        except OSError:
+            terminal_width = 80  # Default width
+
         with open(incomplete_filename, "wb") as file:
-            for chunk in request.iter_content(self.chunk_size):
-                downloaded += len(chunk)
-                file.write(chunk)
-                done = int(25 * downloaded / file_size)
-                percent = int(100 * downloaded / file_size)
-                self.output("\r|{0}{1}| {2}% ".format("\u2588" * done, " " * (25 - done), percent))
+            if file_size == 0:
+                # Handle streams of unknown size
+                self.output("Downloading (size unknown)... ")
+                for chunk in request.iter_content(self.chunk_size):
+                    if chunk:
+                        file.write(chunk)
+                        downloaded += len(chunk)
+                        downloaded_mb = downloaded / (1024 * 1024)
+                        self.output(f"\rDownloading... {downloaded_mb:.2f} MB")
+            else:
+                # Normal download with progress bar
+                for chunk in request.iter_content(self.chunk_size):
+                    if chunk:
+                        downloaded += len(chunk)
+                        file.write(chunk)
+
+                        # Progress calculation
+                        percent = downloaded / file_size
+                        bar_length = 25
+                        done = int(bar_length * percent)
+
+                        elapsed_time = time.time() - start_time
+                        speed = downloaded / elapsed_time if elapsed_time > 0 else 0
+
+                        # Formatting
+                        downloaded_mb = downloaded / (1024 * 1024)
+                        file_size_mb = file_size / (1024 * 1024)
+
+                        speed_str = f"{speed / (1024 * 1024):.2f} MB/s" if speed > 1024 * 1024 else f"{speed / 1024:.2f} KB/s"
+                        eta_seconds = (file_size - downloaded) / speed if speed > 0 else 0
+                        eta_str = time.strftime("%H:%M:%S", time.gmtime(eta_seconds)) if eta_seconds > 0 else "??:??:??"
+
+                        progress_string = (
+                            f"\r|{'█' * done}{' ' * (bar_length - done)}| "
+                            f"{percent:6.1%} [{downloaded_mb:.1f}/{file_size_mb:.1f} MB] "
+                            f"{speed_str} ETA: {eta_str}"
+                        )
+
+                        self.output(progress_string.ljust(terminal_width))
+
+        # Final newline after progress bar
         self.output("\n")
+
         if os.path.exists(filepath):
             os.remove(filepath)
         os.rename(incomplete_filename, filepath)
 
-        modification_time_string = request.headers["Last-Modified"]
-        modification_time = int(dt.strptime(modification_time_string, "%a, %d %b %Y %H:%M:%S %Z").timestamp())
-        if modification_time:
-            access_time = int(time.time())
-            os.utime(filepath, times=(access_time, modification_time))
+        if "Last-Modified" in request.headers:
+            modification_time_string = request.headers["Last-Modified"]
+            try:
+                modification_time = int(dt.strptime(modification_time_string, "%a, %d %b %Y %H:%M:%S %Z").timestamp())
+                access_time = int(time.time())
+                os.utime(filepath, times=(access_time, modification_time))
+            except (ValueError, TypeError):
+                # Some servers might use a different format or value is invalid, ignore if parsing fails
+                pass
 
     def download_photo(self, photo_url, photo_counter, gallery_directory):
         """Download a photo to the post's directory."""

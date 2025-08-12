@@ -7,6 +7,8 @@ import os
 import sys
 from dotenv import load_dotenv
 import argparse
+from tqdm import tqdm
+import shlex
 from dateutil.relativedelta import relativedelta
 
 # .envファイルから環境変数を読み込む
@@ -17,6 +19,7 @@ tsv_file = os.getenv('TSV_FILE', 'id_list.txt')
 # os.path.expanduser('~') を使ってホームディレクトリを取得し、Downloadsを追加する
 default_dl_dir = os.path.join(os.path.expanduser('~'), 'Downloads')
 dl_dir = os.path.expandvars(os.getenv('DL_DIR', default_dl_dir))
+skip_file = os.getenv('SKIP_FILE', 'skip_list.txt')
 cookie_file = os.getenv('COOKIE_FILE', 'cookies.txt')
 options = os.getenv('OPTIONS', '')
 
@@ -27,6 +30,13 @@ parser.add_argument(
     type=str,
     default='current',
     help="ダウンロード対象月を指定します。'current' (今月・デフォルト), 'last' (先月), または 'YYYY-MM' 形式で指定します。"
+)
+parser.add_argument(
+    '--skip',
+    nargs='+',
+    metavar='ID',
+    default=[],
+    help='一時的にスキップするファンクラブIDをスペース区切りで指定します。'
 )
 args = parser.parse_args()
 
@@ -47,22 +57,102 @@ else:
 
 print(f"対象月: {target_date_str}")
 
+# スキップリストを読み込む
+try:
+    skip_ids = set()
+    with open(skip_file, 'r', encoding='UTF-8') as f:
+        # ファイルからIDを読み込み、前後の空白を削除してセットに追加
+        skip_ids = {line.strip() for line in f if line.strip()}
+except FileNotFoundError:
+    # --skipが指定されている場合はこのメッセージは不要なので、後で判定する
+    if not args.skip:
+        print(f"\n情報: スキップリストファイル '{skip_file}' は見つかりませんでした。スキップ処理は行われません。")
+
+# コマンドラインからのスキップIDを追加
+skip_ids.update(args.skip)
+
+# スキップ対象の表示 (IDが1つ以上ある場合のみ)
+if skip_ids:
+    print(f"\n--- スキップ対象 ({len(skip_ids)}件) ---")
+    for skip_id in sorted(list(skip_ids)):
+        print(f"  - ID: {skip_id}")
+    print("------------------------")
+
 try:
     with open(tsv_file, 'r', encoding='UTF-8') as f:
-        reader = csv.reader(f, delimiter='\t')
+        reader = csv.reader(f, delimiter=',')
         next(reader)  # ヘッダー行をスキップ
-        for row in reader:
-            fan_id, name = row[0], row[1]
+        # 各フィールドから前後の空白（タブを含む）を削除してリストに読み込む
+        rows_to_process = [[field.strip() for field in row] for row in reader]
+    # ダウンロード処理の前にリストの内容を表示
+    print("\n--- ダウンロード対象 ---")
+    for row in rows_to_process:
+        print(f"  - {row[1]} (ID: {row[0]})")
+    print("------------------------\n")
 
-            print(f"id= {fan_id} {name}")
-            url = f"https://fantia.jp/fanclubs/{fan_id}"
-            command = f"python fantiadl.py {options} -c {cookie_file} -o \"{dl_dir}\" {url} -d {target_date_str}"
-            print(command)
-            try:
-                subprocess.run(command, shell=True, check=True)
-            except subprocess.CalledProcessError as e:
-                print(f"エラー: id= {fan_id} のダウンロード中にエラーが発生しました。スキップします。(エラーコード: {e.returncode})", file=sys.stderr)
+    # 実行確認
+    confirm = input("ダウンロードを開始しますか？ (y/N): ").lower()
+    if confirm not in ['y', 'yes']:
+        print("処理を中断しました。")
+        sys.exit(0)
+
+    # カウンターを初期化
+    success_count = 0
+    failure_count = 0
+    skipped_count = 0
+
+    # tqdmを使用してリスト全体の進捗をグラフィカルに表示
+    with tqdm(rows_to_process, unit="件", desc="ファンクラブ") as pbar:
+        for row in pbar:
+            fan_id, name = row[0], row[1]
+            pbar.set_description(f"処理中: {name}")
+
+            # スキップリストに含まれているかチェック
+            if fan_id in skip_ids:
+                tqdm.write(f"スキップ: {name} (ID: {fan_id}) はスキップ対象のため処理をスキップします。")
+                skipped_count += 1
                 continue
+
+            url = f"https://fantia.jp/fanclubs/{fan_id}"
+
+            # コマンドをリストとして構築し、より安全で堅牢な実行を目指します
+            command = [
+                sys.executable,  # 現在のスクリプトを実行しているPythonインタプリタを使用
+                '-u',            # Pythonの出力バッファリングを無効化
+                'fantiadl.py',
+                '-q'             # 静音モードでファイル単位のプログレスバーを抑制
+            ]
+
+            # 環境変数からのオプションを分割して追加
+            if options:
+                command.extend(shlex.split(options))
+
+            # その他の引数を追加
+            command.extend([
+                '-c', cookie_file,
+                '-o', dl_dir,
+                url,
+                '-d', target_date_str
+            ])
+
+            try:
+                # 実行中の出力をキャプチャし、エラー発生時のみ表示する
+                subprocess.run(command, check=True, capture_output=True, text=True, encoding='utf-8')
+                success_count += 1
+            except subprocess.CalledProcessError as e:
+                tqdm.write(f"\nエラー: {name} (id={fan_id}) のダウンロード中にエラーが発生しました。")
+                tqdm.write(f"--- stderr ---\n{e.stderr.strip()}\n--------------")
+                failure_count += 1
+                continue
+
+    # 処理完了後にサマリーを表示
+    print("\n\n--- 処理結果サマリー ---")
+    print(f"  成功: {success_count}件")
+    print(f"  失敗: {failure_count}件")
+    print(f"  スキップ: {skipped_count}件")
+    print(f"  合計: {len(rows_to_process)}件")
+    print("--------------------------")
+
 except FileNotFoundError:
     print(f"エラー: TSVファイルが見つかりません: {tsv_file}")
 except Exception as e:
