@@ -20,6 +20,8 @@ import shutil
 import time
 import traceback
 
+# Playwrightのインポートを追加
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
 import fantiadl
 
@@ -57,6 +59,7 @@ MIMETYPES = {
     "video/mp4": ".mp4",
     "video/webm": ".webm"
 }
+
 
 UNICODE_CONTROL_MAP = dict.fromkeys(range(32))
 
@@ -127,32 +130,6 @@ class FantiaDownloader:
         check_user = self.session.get(ME_API)
         if not (check_user.ok or check_user.status_code == 304):
             sys.exit("Error: Invalid session. Please verify your session cookie")
-
-        # Login flow, requires reCAPTCHA token
-
-        # login_json = {
-        #     "utf8": "✓",
-        #     "button": "",
-        #     "user[email]": self.email,
-        #     "user[password]": self.password,
-        # }
-
-        # login_session = self.session.get(LOGIN_SIGNIN_URL)
-        # login_page = BeautifulSoup(login_session.text, "html.parser")
-        # authenticity_token = login_page.select_one("input[name=\"authenticity_token\"]")["value"]
-        # print(login_page.select_one("input[name=\"recaptcha_response\"]"))
-        # login_json["authenticity_token"] = authenticity_token
-        # login_json["recaptcha_response"] = ...
-
-        # create_session = self.session.post(LOGIN_SESSION_URL, data=login_json)
-        # if not create_session.headers.get("Location"):
-        #     sys.exit("Error: Bad login form data")
-        # elif create_session.headers["Location"] == LOGIN_SIGNIN_URL:
-        #     sys.exit("Error: Failed to login. Please verify your username and password")
-
-        # check_user = self.session.get(ME_API)
-        # if not (check_user.ok or check_user.status_code == 304):
-        #     sys.exit("Error: Invalid session")
 
     def create_exclusions(self):
         """Read files to exclude from downloading."""
@@ -586,7 +563,6 @@ class FantiaDownloader:
             if os.path.exists(incomplete_filename):
                 os.remove(incomplete_filename)
 
-
 def guess_extension(mimetype, download_url):
     """
     Guess the file extension from the mimetype or force a specific extension for certain mimetypes.
@@ -603,7 +579,7 @@ def guess_extension(mimetype, download_url):
 
 def sanitize_for_path(value, replace=' '):
     """Remove potentially illegal characters from a path."""
-    sanitized = re.sub(r'[<>\"\?\\\/\*:|]', replace, value)
+    sanitized = re.sub(r'[<>"\\?\\/\*:|]', replace, value)
     sanitized = sanitized.translate(UNICODE_CONTROL_MAP)
     return re.sub(r'[\s.]+$', '', sanitized)
 
@@ -627,3 +603,93 @@ def build_crawljob(links, root_directory, post_directory):
             for key, value in crawl_dict.items():
                 file.write(key + "=" + value + "\n")
             file.write("\n")
+
+def _format_cookies_for_netscape(cookies):
+    """
+    Converts a list of Playwright cookie dictionaries to a Netscape cookie file formatted string.
+    """
+    netscape_string = "# Netscape HTTP Cookie File\n"
+    netscape_string += "# http://www.netscape.com/newsref/std/cookie_spec.html\n"
+    netscape_string += "# This is a generated file! Do not edit.\n\n"
+
+    for cookie in cookies:
+        domain = cookie['domain']
+        include_subdomains = "TRUE" if domain.startswith('.') else "FALSE"
+        path = cookie['path']
+        secure = "TRUE" if cookie['secure'] else "FALSE"
+        expires = str(int(cookie['expires']))
+        name = cookie['name']
+        value = cookie['value']
+
+        netscape_string += f"{domain}\t{include_subdomains}\t{path}\t{secure}\t{expires}\t{name}\t{value}\n"
+
+    return netscape_string
+
+def update_cookies_via_login(cookie_path, status_callback=None):
+    """
+    Opens a browser for the user to log into Fantia and then saves the cookies.
+
+    :param cookie_path: Path to save the cookies.txt file.
+    :param status_callback: A function to send status updates to the GUI.
+    :return: True if successful, False otherwise.
+    """
+    def log(message):
+        print(message)
+        if status_callback:
+            status_callback(message)
+
+    browser = None # Define browser in the outer scope for cleanup
+    try:
+        with sync_playwright() as p:
+            log("ブラウザを起動しています...")
+            browser = p.chromium.launch(headless=False)
+            context = browser.new_context(
+                user_agent=USER_AGENT
+            )
+            page = context.new_page()
+
+            log("Fantiaのログインページを開きます...")
+            page.goto("https://fantia.jp/sessions/signin", wait_until="domcontentloaded")
+
+            log("ブラウザでFantiaにログインしてください。")
+            log("ログイン成功後、自動で処理を続行します...")
+
+            try:
+                # ログイン後に表示される「ログアウト」ボタンを待つことで、ログイン成功を検知する
+                page.wait_for_selector('a[href="/auth/logout"]', timeout=300000) # 5分間待機
+                log("ログインを検知しました。Cookieを保存しています...")
+                time.sleep(2) # Cookieがセットされるのを待つ
+
+                cookies = context.cookies()
+                netscape_cookies = _format_cookies_for_netscape(cookies)
+
+                # 安全なファイル書き込み処理
+                temp_cookie_path = cookie_path + ".tmp"
+                with open(temp_cookie_path, 'w', encoding='utf-8') as f:
+                    f.write(netscape_cookies)
+                
+                if os.path.exists(cookie_path):
+                    os.remove(cookie_path)
+                os.rename(temp_cookie_path, cookie_path)
+
+                log(f"Cookieを {cookie_path} に保存しました。")
+                browser.close()
+                log("ブラウザを終了しました。")
+                return True
+
+            except PlaywrightTimeoutError:
+                log("エラー: 5分以内にログインを検知できませんでした。")
+                log("ブラウザを手動で閉じて、もう一度お試しください。")
+                return False
+
+            except Exception as e:
+                log(f"予期せぬエラーが発生しました: {e}")
+                if "Target page" in str(e):
+                    log("ブラウザが閉じられたため、処理を中断しました。")
+                return False
+
+    except Exception as e:
+        log(f"致命的なエラー: {e}")
+        if browser:
+            browser.close()
+        return False
