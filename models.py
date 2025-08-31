@@ -25,8 +25,8 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 
 import fantiadl
 
-FANTIA_URL_RE = re.compile(r"(?:https?://(?:(?:www\.)?(?:fantia\.jp/(fanclubs|posts)/)))([0-9]+)")
-EXTERNAL_LINKS_RE = re.compile(r"(?:[\s]+)?((?:(?:https?://)?(?:(?:www\.)?(?:mega\.nz|mediafire\.com|(?:drive|docs)\.google\.com|youtube.com|dropbox.com)\/))[^\s]+)")
+FANTIA_URL_RE = re.compile(r"(?:https?://(?:(?:www.)?(?:fantia\.jp/(fanclubs|posts)/)))([0-9]+)")
+EXTERNAL_LINKS_RE = re.compile(r"https?://[\w\-./?=&]+")
 
 DOMAIN = "fantia.jp"
 BASE_URL = "https://fantia.jp/"
@@ -83,7 +83,14 @@ class FantiaDownloader:
         self.continue_on_error = continue_on_error
         self.use_server_filenames = use_server_filenames
         self.mark_incomplete_posts = mark_incomplete_posts
-        self.month_limit = dt.strptime(month_limit, "%Y-%m") if month_limit else None
+        if month_limit and month_limit.lower() != "all":
+            try:
+                self.month_limit = dt.strptime(month_limit, "%Y-%m")
+            except ValueError:
+                print(f"Error: Invalid date format for --download-month. Expected YYYY-MM or 'all', but got {month_limit}")
+                sys.exit(1)
+        else:
+            self.month_limit = None
         self.exclude_file = exclude_file
         self.exclusions = []
         self.initialize_session()
@@ -193,6 +200,29 @@ class FantiaDownloader:
             background_filename = os.path.join(fanclub_directory, "background" + self.process_content_type(background_url))
             self.output("Downloading fanclub background...\n")
             self.perform_download(background_url, background_filename, use_server_filename=self.use_server_filenames)
+
+    def get_followed_fanclubs_details(self):
+        """Fetch details (ID and name) of all followed fanclubs."""
+        self.output("Fetching followed fanclubs list...\n")
+        response = self.session.get(FANCLUBS_FOLLOWING_API)
+        response.raise_for_status()
+        fanclub_ids = json.loads(response.text)["fanclub_ids"]
+        
+        clubs = []
+        self.output(f"Found {len(fanclub_ids)} followed fanclubs. Fetching details...\n")
+        for i, fanclub_id in enumerate(fanclub_ids):
+            try:
+                self.output(f"  ({i+1}/{len(fanclub_ids)}) Fetching details for club {fanclub_id}...\r")
+                club_response = self.session.get(FANCLUB_API.format(fanclub_id))
+                club_response.raise_for_status()
+                club_json = json.loads(club_response.text)["fanclub"]
+                club_name = club_json["creator_name"]
+                clubs.append((str(fanclub_id), club_name))
+            except Exception as e:
+                self.output(f"\nCould not fetch details for fanclub {fanclub_id}: {e}\n")
+                continue
+        self.output("\nDone fetching details.\n")
+        return clubs
 
     def download_fanclub(self, fanclub, limit=0):
         """Download a fanclub."""
@@ -579,7 +609,7 @@ def guess_extension(mimetype, download_url):
 
 def sanitize_for_path(value, replace=' '):
     """Remove potentially illegal characters from a path."""
-    sanitized = re.sub(r'[<>"\\?\\/\*:|]', replace, value)
+    sanitized = re.sub(r'[<"\\?/*:|]', replace, value)
     sanitized = sanitized.translate(UNICODE_CONTROL_MAP)
     return re.sub(r'[\s.]+$', '', sanitized)
 

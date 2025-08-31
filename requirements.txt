@@ -1,0 +1,7 @@
+python-dotenv
+tqdm
+python-dateutil
+requests
+beautifulsoup4
+playwright
+Pillow

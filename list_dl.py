@@ -1,15 +1,18 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import csv
-import subprocess
 from datetime import datetime
 import os
 import sys
+import io
 from dotenv import load_dotenv
 import argparse
 from tqdm import tqdm
-import shlex
 from dateutil.relativedelta import relativedelta
+
+from models import FantiaDownloader, FantiaClub
+
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 # .envファイルから環境変数を読み込む
 load_dotenv()
@@ -69,10 +72,10 @@ except FileNotFoundError:
         print(f"\n情報: スキップリストファイル '{skip_file}' は見つかりませんでした。スキップ処理は行われません。")
 
 # コマンドラインからのスキップIDを追加
-skip_ids.update(args.skip)
+skip_ids.update(args.skip) # type: ignore
 
 # スキップ対象の表示 (IDが1つ以上ある場合のみ)
-if skip_ids:
+if skip_ids: # type: ignore
     print(f"\n--- スキップ対象 ({len(skip_ids)}件) ---")
     for skip_id in sorted(list(skip_ids)):
         print(f"  - ID: {skip_id}")
@@ -101,6 +104,14 @@ try:
     failure_count = 0
     skipped_count = 0
 
+    downloader = FantiaDownloader(
+        session_arg=cookie_file,
+        directory=dl_dir,
+        month_limit=target_date_str,
+        quiet=False,
+        continue_on_error=True # Always continue on error in list mode
+    )
+
     # tqdmを使用してリスト全体の進捗をグラフィカルに表示
     with tqdm(rows_to_process, unit="件", desc="ファンクラブ") as pbar:
         for row in pbar:
@@ -108,40 +119,18 @@ try:
             pbar.set_description(f"処理中: {name}")
 
             # スキップリストに含まれているかチェック
-            if fan_id in skip_ids:
+            if fan_id in skip_ids: # type: ignore
                 tqdm.write(f"スキップ: {name} (ID: {fan_id}) はスキップ対象のため処理をスキップします。")
                 skipped_count += 1
                 continue
 
-            url = f"https://fantia.jp/fanclubs/{fan_id}"
-
-            # コマンドをリストとして構築し、より安全で堅牢な実行を目指します
-            command = [
-                sys.executable,  # 現在のスクリプトを実行しているPythonインタプリタを使用
-                '-u',            # Pythonの出力バッファリングを無効化
-                'fantiadl.py',
-                '-q'             # 静音モードでファイル単位のプログレスバーを抑制
-            ]
-
-            # 環境変数からのオプションを分割して追加
-            if options:
-                command.extend(shlex.split(options))
-
-            # その他の引数を追加
-            command.extend([
-                '-c', cookie_file,
-                '-o', dl_dir,
-                url,
-                '-d', target_date_str
-            ])
-
             try:
-                # 実行中の出力をキャプチャし、エラー発生時のみ表示する
-                subprocess.run(command, check=True, capture_output=True, text=True, encoding='utf-8')
+                fanclub = FantiaClub(fan_id)
+                downloader.download_fanclub(fanclub)
                 success_count += 1
-            except subprocess.CalledProcessError as e:
+            except Exception as e:
                 tqdm.write(f"\nエラー: {name} (id={fan_id}) のダウンロード中にエラーが発生しました。")
-                tqdm.write(f"--- stderr ---\n{e.stderr.strip()}\n--------------")
+                tqdm.write(f"--- stderr ---\n{e}\n--------------")
                 failure_count += 1
                 continue
 
