@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from bs4 import BeautifulSoup
-from requests.adapters import HTTPAdapter, Retry
-import requests
+from bs4 import BeautifulSoup # type: ignore
+from requests.adapters import HTTPAdapter, Retry # type: ignore
+import requests # type: ignore
 
 from datetime import datetime as dt
 from urllib.parse import unquote
@@ -21,7 +21,7 @@ import time
 import traceback
 
 # Playwrightのインポートを追加
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError # type: ignore
 
 import fantiadl
 
@@ -129,9 +129,9 @@ class FantiaDownloader:
             with open(self.session_arg, "r") as cookies_file:
                 cookies = http.cookiejar.MozillaCookieJar(self.session_arg)
                 cookies.load()
-                self.session.cookies = cookies
+                self.session.cookies = cookies # type: ignore
         except FileNotFoundError:
-            login_cookie = requests.cookies.create_cookie(domain=DOMAIN, name="_session_id", value=self.session_arg)
+            login_cookie = requests.cookies.create_cookie(domain=DOMAIN, name="_session_id", value=self.session_arg) # type: ignore
             self.session.cookies.set_cookie(login_cookie)
 
         check_user = self.session.get(ME_API)
@@ -277,7 +277,7 @@ class FantiaDownloader:
             fanclub_links = response_page.select("div.mb-5-children > div:nth-of-type(1) a[href^=\"/fanclubs\"]")
 
             for fanclub_link in fanclub_links:
-                fanclub_id = fanclub_link["href"].lstrip("/fanclubs/")
+                fanclub_id = fanclub_link["href"].lstrip("/fanclubs/") # type: ignore
                 all_paid_fanclubs.append(fanclub_id)
             if not fanclub_links:
                 self.output("Collected {} fanclubs.\n".format(len(all_paid_fanclubs)))
@@ -344,9 +344,9 @@ class FantiaDownloader:
             posts = response_page.select("div.post")
             new_post_ids = []
             for post in posts:
-                link = post.select_one("a.link-block")["href"]
-                post_id = link.lstrip(POST_RELATIVE_URL)
-                date_string = post.select_one(".post-date .mr-5").text if post.select_one(".post-date .mr-5") else post.select_one(".post-date").text
+                link = post.select_one("a.link-block")["href"] # type: ignore
+                post_id = link.lstrip(POST_RELATIVE_URL) # type: ignore
+                date_string = post.select_one(".post-date .mr-5").text if post.select_one(".post-date .mr-5") else post.select_one(".post-date").text # type: ignore
                 parsed_date = dt.strptime(date_string, "%Y-%m-%d %H:%M")
                 if not self.month_limit or (parsed_date.year == self.month_limit.year and parsed_date.month == self.month_limit.month):
                     post_found = True
@@ -527,12 +527,12 @@ class FantiaDownloader:
         post_html_response = self.session.get(POST_URL.format(post_id))
         post_html_response.raise_for_status()
         post_html = BeautifulSoup(post_html_response.text, "html.parser")
-        csrf_token = post_html.select_one("meta[name=\"csrf-token\"]")["content"]
+        csrf_token = post_html.select_one("meta[name=\"csrf-token\"]")["content"] # type: ignore
 
         response = self.session.get(POST_API.format(post_id), headers={
             "X-CSRF-Token": csrf_token,
             "X-Requested-With": "XMLHttpRequest"
-        })
+        }) # type: ignore
         response.raise_for_status()
         post_json = json.loads(response.text)["post"]
 
@@ -668,7 +668,7 @@ def update_cookies_via_login(cookie_path, status_callback=None):
         if status_callback:
             status_callback(message)
 
-    browser = None # Define browser in the outer scope for cleanup
+    browser = None  # Define browser in the outer scope for cleanup
     try:
         with sync_playwright() as p:
             log("ブラウザを起動しています...")
@@ -683,12 +683,13 @@ def update_cookies_via_login(cookie_path, status_callback=None):
 
             log("ブラウザでFantiaにログインしてください。")
             log("ログイン成功後、自動で処理を続行します...")
+            log("★★重要★★: 処理が完了してブラウザが自動で閉じるまで、このウィンドウを手動で閉じないでください。")
 
             try:
                 # ログイン後に表示される「ログアウト」ボタンを待つことで、ログイン成功を検知する
-                page.wait_for_selector('a[href="/auth/logout"]', timeout=300000) # 5分間待機
+                page.wait_for_selector('a[href="/auth/logout"]', timeout=300000)  # 5分間待機
                 log("ログインを検知しました。Cookieを保存しています...")
-                time.sleep(2) # Cookieがセットされるのを待つ
+                time.sleep(2)  # Cookieがセットされるのを待つ
 
                 cookies = context.cookies()
                 netscape_cookies = _format_cookies_for_netscape(cookies)
@@ -697,7 +698,7 @@ def update_cookies_via_login(cookie_path, status_callback=None):
                 temp_cookie_path = cookie_path + ".tmp"
                 with open(temp_cookie_path, 'w', encoding='utf-8') as f:
                     f.write(netscape_cookies)
-                
+
                 if os.path.exists(cookie_path):
                     os.remove(cookie_path)
                 os.rename(temp_cookie_path, cookie_path)
@@ -708,18 +709,28 @@ def update_cookies_via_login(cookie_path, status_callback=None):
                 return True
 
             except PlaywrightTimeoutError:
-                log("エラー: 5分以内にログインを検知できませんでした。")
-                log("ブラウザを手動で閉じて、もう一度お試しください。")
+                log("エラー: 5分以内にログインを検知できませんでした。タイムアウトしました。")
+                log("ブラウザを閉じて、もう一度お試しください。")
+                if browser:
+                    browser.close()
                 return False
 
             except Exception as e:
                 log(f"予期せぬエラーが発生しました: {e}")
-                if "Target page" in str(e):
-                    log("ブラウザが閉じられたため、処理を中断しました。")
+                if "Target page" in str(e) or "closed" in str(e).lower():
+                    log("ブラウザが予期せず閉じられたため、処理を中断しました。")
+                else:
+                    log(f"詳細: {traceback.format_exc()}")
+                if browser:
+                    browser.close()
                 return False
 
     except Exception as e:
-        log(f"致命的なエラー: {e}")
+        log(f"致命的なエラーが発生しました: {e}")
+        log(f"詳細: {traceback.format_exc()}")
         if browser:
-            browser.close()
+            try:
+                browser.close()
+            except Exception as close_e:
+                log(f"ブラウザ終了時にエラー: {close_e}")
         return False

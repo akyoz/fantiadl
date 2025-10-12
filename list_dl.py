@@ -3,12 +3,12 @@
 import csv
 from datetime import datetime
 import os
-import sys
 import io
-from dotenv import load_dotenv
+import sys
+from dotenv import load_dotenv # type: ignore
 import argparse
-from tqdm import tqdm
-from dateutil.relativedelta import relativedelta
+from tqdm import tqdm # type: ignore
+from dateutil.relativedelta import relativedelta # type: ignore
 
 from models import FantiaDownloader, FantiaClub
 

@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*- 
+# -*- coding: utf-8 -*-
 
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, filedialog
@@ -47,7 +47,7 @@ class ConfigEditorWindow(tk.Toplevel):
         self.option_vars = {}
         self.update_button = None
         self.update_status_label = None
-        
+
         self.cookie_update_queue = queue.Queue()
         self.cookie_thread_running = False
 
@@ -68,7 +68,7 @@ class ConfigEditorWindow(tk.Toplevel):
                 self._create_id_list_editor(tab_frame)
             elif display_name == "Cookie":
                 self._create_cookie_editor(tab_frame)
-            
+
             # ファイルの内容を読み込んでUIに反映
             self._load_content(display_name, filepath)
 
@@ -218,7 +218,7 @@ class ConfigEditorWindow(tk.Toplevel):
             except FileNotFoundError:
                 text_area.insert('1.0', f"# ファイルが見つかりませんでした: {filepath}\n# 保存時にこの名前で新規作成されます。")
             except Exception as e:
-                 text_area.insert('1.0', f"# ファイルの読み込み中にエラー: {e}")
+                text_area.insert('1.0', f"# ファイルの読み込み中にエラー: {e}")
 
     def save_files(self):
         """ウィジェットの内容を各ファイルに保存する"""
@@ -286,7 +286,7 @@ class ConfigEditorWindow(tk.Toplevel):
     def _delete_id_row(self):
         if not self.id_list_tree: return
         selected_items = self.id_list_tree.selection()
-        if not selected_items: 
+        if not selected_items:
             messagebox.showinfo("情報", "削除する行を選択してください。", parent=self)
             return
         if messagebox.askyesno("確認", f"{len(selected_items)}行を削除しますか？", parent=self):
@@ -492,25 +492,25 @@ class FantiadlApp:
         self.style.configure('TButton', padding=6, relief='flat', background='#4b5263', foreground='#abb2bf')
         self.style.map('TButton', background=[('active', '#52596b')])
         self.style.configure('TLabel', background='#282c34', foreground='#abb2bf')
-        self.style.configure('Treeview', 
-                             rowheight=25, 
-                             fieldbackground='#282c34', 
-                             background='#282c34', 
-                             foreground='#abb2bf',
-                             bordercolor="#282c34",
-                             lightcolor="#282c34",
-                             darkcolor="#282c34")
-        self.style.configure('Treeview.Heading', 
-                             background='#3c4049', 
-                             foreground='#abb2bf', 
-                             relief='flat')
+        self.style.configure('Treeview',
+                            rowheight=25,
+                            fieldbackground='#282c34',
+                            background='#282c34',
+                            foreground='#abb2bf',
+                            bordercolor="#282c34",
+                            lightcolor="#282c34",
+                            darkcolor="#282c34")
+        self.style.configure('Treeview.Heading',
+                            background='#3c4049',
+                            foreground='#abb2bf',
+                            relief='flat')
         self.style.map('Treeview.Heading', background=[('active', '#52596b')])
-        self.style.configure("Horizontal.TProgressbar", 
-                             background='#4b5263', 
-                             troughcolor='#282c34',
-                             bordercolor="#282c34",
-                             lightcolor="#4b5263",
-                             darkcolor="#4b5263")
+        self.style.configure("Horizontal.TProgressbar",
+                            background='#4b5263',
+                            troughcolor='#282c34',
+                            bordercolor="#282c34",
+                            lightcolor="#4b5263",
+                            darkcolor="#4b5263")
         self.style.configure('TLabelframe', background='#282c34', bordercolor="#3c4049")
         self.style.configure('TLabelframe.Label', background='#282c34', foreground='#abb2bf')
 
@@ -562,6 +562,9 @@ class FantiadlApp:
 
         self.image_viewer_button = ttk.Button(control_frame, text="画像ビューア", command=self._open_image_viewer)
         self.image_viewer_button.pack(side=tk.LEFT, padx=5)
+
+        self.cancel_all_button = ttk.Button(control_frame, text="すべてのキューをキャンセル", command=self.cancel_all_downloads, state="disabled")
+        self.cancel_all_button.pack(side=tk.LEFT, padx=5)
 
         progress_frame = ttk.LabelFrame(main_frame, text="全体進捗", padding="10")
         progress_frame.grid(row=2, column=0, sticky="ew", pady=5)
@@ -676,9 +679,10 @@ class FantiadlApp:
 
         for item in dialog.selected_items:
             self.download_queue.put(item)
-        
+
         self.total_queued_items += len(dialog.selected_items)
         self._update_overall_progress()
+        self.cancel_all_button.config(state="normal")
 
         if not self.dispatcher_running:
             self.dispatcher_running = True
@@ -694,7 +698,7 @@ class FantiadlApp:
                 fan_club = self.download_queue.get_nowait()
                 month = self.month_var.get()
                 self._prepare_and_run_download(month, [fan_club], slot_id)
-        
+
         is_running = not self.download_queue.empty() or any(t and t.is_alive() for t in self.download_threads)
         if is_running:
             self.root.after(1000, self._dispatcher)
@@ -777,6 +781,28 @@ class FantiadlApp:
             except Exception as e:
                 self._log(f"プロセス終了エラー: {e}", slot_id)
         self.cancel_buttons[slot_id].config(state="disabled")
+
+    def cancel_all_downloads(self):
+        if messagebox.askyesno("確認", "すべてのダウンロードをキャンセルしますか？\n（実行中のダウンロードも停止します）", parent=self.root):
+            q_size_before_clear = self.download_queue.qsize()
+
+            # キューをクリア
+            while not self.download_queue.empty():
+                try:
+                    self.download_queue.get_nowait()
+                except queue.Empty:
+                    break
+
+            if q_size_before_clear > 0:
+                self.total_queued_items -= q_size_before_clear
+
+            # 実行中のダウンロードをキャンセル
+            for i in range(self.NUM_SLOTS):
+                if self.download_threads[i] and self.download_threads[i].is_alive(): # type: ignore
+                    self._cancel_download(i)
+
+            self._update_overall_progress()
+            self.cancel_all_button.config(state="disabled")
 
     def _download_worker(self, month_arg, rows_to_process, slot_id):
         try:
@@ -869,6 +895,13 @@ class FantiadlApp:
         self.download_threads[slot_id] = None
         self.completed_items_count += 1
         self._update_overall_progress()
+
+        if self.total_queued_items > 0 and self.completed_items_count >= self.total_queued_items:
+            self.cancel_all_button.config(state="disabled")
+            messagebox.showinfo("完了", "すべてのダウンロードが完了しました。", parent=self.root)
+            self.total_queued_items = 0
+            self.completed_items_count = 0
+            self._update_overall_progress()
 
     def _process_queue(self):
         try:
