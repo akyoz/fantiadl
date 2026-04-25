@@ -127,3 +127,5 @@ ENV/
 cookies.txt
 id_list.txt
 .env
+.vscode/
+.vscode/*
