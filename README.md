@@ -1,80 +1,106 @@
-# FantiaDL
-Download media and other data from Fantia fanclubs and posts. A session cookie must be provided with the -c/--cookie argument directly or by passing the path to a legacy Netscape cookies file. Please see the [About Session Cookies](#about-session-cookies) section.
+# FantiaDL (Fantia Downloader)
 
+Fantiaのファンクラブや投稿から画像、動画、その他のデータをダウンロードするためのツールです。
+コマンドラインツール（CLI）と、直感的に操作できるデスクトップアプリ（GUI）の両方を提供しています。
+
+## 主な機能
+
+- **一括ダウンロード**: フォロー中のファンクラブや、プラン加入中のファンクラブの投稿をまとめてダウンロードできます。
+- **特定投稿・ファンクラブの保存**: URLを指定して特定の投稿やファンクラブのみをダウンロード可能です。
+- **期間指定**: 特定の月（例: 2024年05月）の投稿のみを対象にダウンロードできます。
+- **メタデータ保存**: 投稿内容だけでなく、ファンクラブのアイコン、ヘッダー、投稿のメタデータ（JSON形式）も保存可能です。
+- **外部リンク解析**: 本文中に含まれる外部サイト（MegaやGoogle Drive等）のリンクを抽出し、JDownloader用の`.crawljob`ファイルとして書き出せます。
+- **GUI機能**:
+  - ダウンロード状況のリアルタイム表示とログ確認。
+  - 設定ファイル（`.env`）やファンクラブIDリスト（`id_list.txt`）の編集。
+  - **ブラウザログインによるCookieの自動更新**: 面倒なCookieの取得を自動化できます。
+  - 内蔵画像ビューアによるダウンロード済みコンテンツの確認。
+
+## 動作環境
+
+- **OS**: Windows, macOS, Linux (GUIはWindowsでの動作を優先して設計されています)
+- **Python**: 3.8以上
+- **依存ライブラリ**:
+  - `requests`, `beautifulsoup4` (スクレイピング・通信)
+  - `playwright` (Cookie更新用のブラウザ自動操作)
+  - `Pillow` (画像処理)
+  - `python-dotenv`, `python-dateutil`, `tqdm`
+
+## セットアップ
+
+### 1. リポジトリのクローンまたはダウンロード
+このリポジトリをダウンロードし、任意のフォルダに展開してください。
+
+### 2. 依存ライブラリのインストール
+ターミナルまたはコマンドプロンプトを開き、展開したフォルダ内で以下のコマンドを実行します。
+
+```bash
+pip install -r requirements.txt
 ```
+
+### 3. Playwrightのブラウザインストール
+GUIで「Cookieの自動更新」機能を使用する場合、以下のコマンドでブラウザ（Chromium）をインストールする必要があります。
+
+```bash
+playwright install chromium
+```
+
+## 使い方
+
+### GUI（推奨）
+初心者の方や、複数のファンクラブを管理したい方はGUIの使用を推奨します。
+
+```bash
+python fantiadl_ui.py
+```
+
+1. **Cookieの設定**: 初回実行時は「設定ファイル編集」ボタンからCookieを更新してください。「ブラウザでログインしてCookieを更新」ボタンを押すとブラウザが起動するので、Fantiaにログインするだけで完了します。
+2. **ファンクラブの選択**: 「リストから選択してキューに追加」ボタンから、ダウンロードしたいファンクラブを選んでキューに追加します。
+3. **ダウンロード**: 自動的にダウンロードが開始されます。
+
+### CLI (コマンドライン)
+単発のダウンロードや、スクリプトに組み込みたい場合に適しています。
+
+```bash
 usage: fantiadl.py [options] url
-
-positional arguments:
-  url                   fanclub or post URL
-
-options:
-  -h, --help            show this help message and exit
-  -c SESSION_COOKIE, --cookie SESSION_COOKIE
-                        _session_id cookie or cookies.txt
-  -q, --quiet           suppress output
-  -v, --version         show program's version number and exit
-
-download options:
-  -i, --ignore-errors   continue on download errors
-  -l #, --limit #       limit the number of posts to process per fanclub (excludes -n)
-  -o OUTPUT_PATH, --output-directory OUTPUT_PATH
-                        directory to download to
-  -s, --use-server-filenames
-                        download using server defined filenames
-  -r, --mark-incomplete-posts
-                        add .incomplete file to post directories that are incomplete
-  -m, --dump-metadata   store metadata to file (including fanclub icon, header, and background)
-  -x, --parse-for-external-links
-                        parse posts for external links
-  -t, --download-thumbnail
-                        download post thumbnails
-  -f, --download-fanclubs
-                        download posts from all followed fanclubs
-  -p, --download-paid-fanclubs
-                        download posts from all fanclubs backed on a paid plan
-  -n #, --download-new-posts #
-                        download a specified number of new posts from your fanclub timeline
-  -d %Y-%m, --download-month %Y-%m
-                        download posts only from a specific month, e.g. 2007-08 (excludes -n)
-  --exclude EXCLUDE_FILE
-                        file containing a list of filenames to exclude from downloading
 ```
 
-When parsing for external links using `-x`, a .crawljob file is created in your root directory (either the directory provided with `-o` or the directory the script is being run from) that can be parsed by [JDownloader](http://jdownloader.org/). As posts are parsed, links will be appended and assigned their appropriate post directories for download. You can import this file manually into JDownloader (File -> Load Linkcontainer) or setup the Folder Watch plugin to watch your root directory for .crawljob files.
+**主な例:**
+- 特定の投稿をダウンロード:
+  `python fantiadl.py -c cookies.txt https://fantia.jp/posts/123456`
+- 特定の月の投稿のみダウンロード:
+  `python fantiadl.py -c cookies.txt -d 2024-05 https://fantia.jp/fanclubs/123`
+- フォロー中の全ファンクラブをダウンロード:
+  `python fantiadl.py -c cookies.txt -f`
 
-## About Session Cookies
-Due to recent changes imposed by Fantia, providing an email and password to login from the command line is no longer supported. In order to login, you will need to provide the `_session_id` cookie for your Fantia login session using -c/--cookie. After logging in normally on your browser, this value can then be extracted and used with FantiaDL. This value expires and may need to be updated with some regularity.
+**オプション一覧:**
+- `-c`, `--cookie`: `_session_id`の文字列、または`cookies.txt`へのパス
+- `-o`, `--output-directory`: 保存先ディレクトリの指定
+- `-m`, `--dump-metadata`: メタデータをJSONで保存
+- `-t`, `--download-thumbnail`: 投稿のサムネイルを保存
+- `-d`, `--download-month`: 特定の月（YYYY-MM）を指定
 
-### Mozilla Firefox
-1. On https://fantia.jp, press Ctrl + Shift + I to open Developer Tools.
-2. Select the Storage tab at the top. In the sidebar, select https://fantia.jp under the Cookies heading.
-3. Locate the `_session_id` cookie name. Click on the value to copy it.
+## 設定について
 
-### Google Chrome
-1. On https://fantia.jp, press Ctrl + Shift + I to open DevTools.
-2. Select the Application tab at the top. In the sidebar, expand Cookies under the Storage heading and select https://fantia.jp.
-3. Locate the `_session_id` cookie name. Click on the value to copy it.
+`.env`ファイルを作成または編集することで、デフォルトの動作を設定できます。
 
-### Third-Party Extensions (cookies.txt)
-You also have the option of passing the path to a legacy Netscape format cookies file with -c/--cookie, e.g. `-c ~/cookies.txt`. Using an extension like [cookies.txt](https://chrome.google.com/webstore/detail/cookiestxt/njabckikapfpffapmjgojcnbfjonfjfg), create a text file matching the accepted format:
+- `DL_DIR`: ダウンロード先の親フォルダ。
+- `COOKIE_FILE`: Cookie情報の保存先ファイル名（デフォルト: `cookies.txt`）。
+- `TSV_FILE`: ファンクラブIDと名前のリストファイル（デフォルト: `id_list.txt`）。
+- `OPTIONS`: CLI実行時のデフォルトオプション（例: `-m -t`）。
 
-```
-# Netscape HTTP Cookie File
-# https://curl.haxx.se/rfc/cookie_spec.html
-# This is a generated file! Do not edit.
+## 注意事項
 
-fantia.jp	FALSE	/	FALSE	1595755239	_session_id	a1b2c3d4...
-```
+- 本ツールは個人利用を目的として作成されています。ダウンロードしたコンテンツの取り扱いは各クリエイターの利用規約に従ってください。
+- Fantiaの仕様変更により、機能が制限されたり動作しなくなったりする可能性があります。
+- ログイン情報の管理には十分注意してください。
 
-Only the `_session_id` cookie is required.
+## ライセンス
 
-## Download
-Check the [releases page](https://github.com/bitbybyte/fantiadl/releases/latest) for the latest binaries.
+[MIT License](LICENSE)
 
-## Build Requirements
- - Python 3.x
- - requests
- - beautifulsoup4
+---
 
-## Roadmap
- - More robust logging
+## 謝辞
+
+本ツールはオープンソースプロジェクトのフォークとして作成されています。元のプロジェクトの作者様、およびこの開発に寄与してくださった全ての方々に深く感謝いたします。

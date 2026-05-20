@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Download media and other data from Fantia"""
+# """Download media and other data from Fantia"""
 
 import argparse
 import getpass
@@ -19,7 +19,7 @@ __version__ = "1.8.5"
 BASE_HOST = "fantia.jp"
 
 if __name__ == "__main__":
-    cmdl_usage = "%(prog)s [options] url"
+    cmdl_usage = "% (prog)s [options] url"
     cmdl_version = __version__
     cmdl_parser = argparse.ArgumentParser(usage=cmdl_usage, conflict_handler="resolve")
 
@@ -43,7 +43,7 @@ if __name__ == "__main__":
     dl_group.add_argument("-f", "--download-fanclubs", action="store_true", dest="download_fanclubs", help="download posts from all followed fanclubs")
     dl_group.add_argument("-p", "--download-paid-fanclubs", action="store_true", dest="download_paid_fanclubs", help="download posts from all fanclubs backed on a paid plan")
     dl_group.add_argument("-n", "--download-new-posts", dest="download_new_posts", metavar="#", type=int, help="download a specified number of new posts from your fanclub timeline")
-    dl_group.add_argument("-d", "--download-month", dest="month_limit", metavar="%Y-%m", help="download posts only from a specific month, e.g. 2007-08 (excludes -n)")
+    dl_group.add_argument("-d", "--download-month", dest="month_limit", metavar="%Y-%m or 'all'", help="download posts only from a specific month (e.g. 2007-08) or all posts ('all') (excludes -n)")
     dl_group.add_argument("--exclude", dest="exclude_file", metavar="EXCLUDE_FILE", help="file containing a list of filenames to exclude from downloading")
 
 
