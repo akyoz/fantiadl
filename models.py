@@ -203,24 +203,29 @@ class FantiaDownloader:
 
     def get_followed_fanclubs_details(self):
         """Fetch details (ID and name) of all followed fanclubs."""
+        from concurrent.futures import ThreadPoolExecutor
         self.output("Fetching followed fanclubs list...\n")
         response = self.session.get(FANCLUBS_FOLLOWING_API)
         response.raise_for_status()
         fanclub_ids = json.loads(response.text)["fanclub_ids"]
         
         clubs = []
-        self.output(f"Found {len(fanclub_ids)} followed fanclubs. Fetching details...\n")
-        for i, fanclub_id in enumerate(fanclub_ids):
-            try:
-                self.output(f"  ({i+1}/{len(fanclub_ids)}) Fetching details for club {fanclub_id}...\r")
-                club_response = self.session.get(FANCLUB_API.format(fanclub_id))
-                club_response.raise_for_status()
-                club_json = json.loads(club_response.text)["fanclub"]
-                club_name = club_json["creator_name"]
-                clubs.append((str(fanclub_id), club_name))
-            except Exception as e:
-                self.output(f"\nCould not fetch details for fanclub {fanclub_id}: {e}\n")
-                continue
+        self.output(f"Found {len(fanclub_ids)} followed fanclubs. Fetching details in parallel...\n")
+
+        def fetch_club(fanclub_id):
+            club_response = self.session.get(FANCLUB_API.format(fanclub_id))
+            club_response.raise_for_status()
+            club_json = json.loads(club_response.text)["fanclub"]
+            return str(fanclub_id), club_json["creator_name"]
+
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            future_to_id = {executor.submit(fetch_club, fid): fid for fid in fanclub_ids}
+            for future in future_to_id:
+                try:
+                    clubs.append(future.result())
+                except Exception as e:
+                    self.output(f"\nCould not fetch details for fanclub {future_to_id[future]}: {e}\n")
+
         self.output("\nDone fetching details.\n")
         return clubs
 
@@ -686,10 +691,43 @@ def update_cookies_via_login(cookie_path, status_callback=None):
             log("★★重要★★: 処理が完了してブラウザが自動で閉じるまで、このウィンドウを手動で閉じないでください。")
 
             try:
-                # ログイン後に表示される「ログアウト」ボタンを待つことで、ログイン成功を検知する
-                page.wait_for_selector('a[href="/auth/logout"]', timeout=300000)  # 5分間待機
+                log("ログインを待機しています（最大5分間）...")
+                
+                # ログイン成功を検知するためのポーリング
+                # 1. URLがログインページ以外に遷移したこと
+                # 2. _session_id クッキーが存在すること
+                # の両方を確認します。
+                start_time = time.time()
+                logged_in = False
+                while time.time() - start_time < 300:  # 5分間
+                    # ページの読み込み完了を待たずに状態をチェックできるよう、try-exceptで囲む
+                    try:
+                        current_url = page.url
+                        # ログインページ（signin）やログイン処理中（sessions）以外のページに遷移したか
+                        if "sessions/signin" not in current_url and not current_url.endswith("/sessions"):
+                            cookies = context.cookies()
+                            if any(c["name"] == "_session_id" for c in cookies):
+                                logged_in = True
+                                break
+                    except Exception:
+                        # ブラウザ操作中の一時的なエラーは無視して続行
+                        pass
+                    
+                    # セレクタによる補助的な検知
+                    try:
+                        if page.locator('a[href="/auth/logout"], a[href^="/mypage"]').count() > 0:
+                            logged_in = True
+                            break
+                    except Exception:
+                        pass
+
+                    time.sleep(2)
+
+                if not logged_in:
+                    raise PlaywrightTimeoutError("5分以内にログインを検知できませんでした。タイムアウトしました。")
+
                 log("ログインを検知しました。Cookieを保存しています...")
-                time.sleep(2)  # Cookieがセットされるのを待つ
+                time.sleep(2)  # Cookieが完全にセットされるのを待つ
 
                 cookies = context.cookies()
                 netscape_cookies = _format_cookies_for_netscape(cookies)
